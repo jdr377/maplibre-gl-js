@@ -46182,6 +46182,8 @@ class VectorTileSource extends performance$1.Evented {
         this.isTileClipped = true;
         this._loaded = false;
         performance$1.extend(this, performance$1.pick(options, ['url', 'scheme', 'tileSize', 'promoteId', 'encoding']));
+        this.stableZoom = options.stableZoom === true;
+        this.stableZoomMaxLat = options.stableZoomMaxLat;
         this._options = performance$1.extend({ type: 'vector' }, options);
         this._collectResourceTiming = options.collectResourceTiming;
         if (this.tileSize !== 512) {
@@ -48656,7 +48658,9 @@ const defaultCalculateTileZoom = createCalculateTileZoomFunction(defaultMaxZoomL
  * @returns An integer zoom level at which all tiles will be visible.
  */
 function coveringZoomLevel(transform, options) {
-    const z = (options.roundZoom ? Math.round : Math.floor)(transform.zoom + performance$1.scaleZoom(transform.tileSize / options.tileSize));
+    var _a;
+    const centerZoom = (_a = options.centerZoom) !== null && _a !== void 0 ? _a : transform.zoom;
+    const z = (options.roundZoom ? Math.round : Math.floor)(centerZoom + performance$1.scaleZoom(transform.tileSize / options.tileSize));
     // At negative zoom levels load tiles from z0 because negative tile zoom levels don't exist.
     return Math.max(0, z);
 }
@@ -48673,6 +48677,7 @@ function coveringZoomLevel(transform, options) {
  * @returns A list of tile coordinates, ordered by ascending distance from camera.
  */
 function coveringTiles(transform, options) {
+    var _a;
     const frustum = transform.getCameraFrustum();
     const plane = transform.getClippingPlane();
     const cameraCoord = transform.screenPointToMercatorCoordinate(transform.getCameraPoint());
@@ -48680,7 +48685,9 @@ function coveringTiles(transform, options) {
     cameraCoord.z = centerCoord.z + Math.cos(transform.pitchInRadians) * transform.cameraToCenterDistance / transform.worldSize;
     const detailsProvider = transform.getCoveringTilesDetailsProvider();
     const allowVariableZoom = detailsProvider.allowVariableZoom(transform, options);
-    const desiredZ = coveringZoomLevel(transform, options);
+    const centerZoom = (_a = options.centerZoom) !== null && _a !== void 0 ? _a : transform.zoom;
+    const requestedCenterZoom = centerZoom + performance$1.scaleZoom(transform.tileSize / options.tileSize);
+    const desiredZ = (options.roundZoom ? Math.round : Math.floor)(requestedCenterZoom);
     const minZoom = options.minzoom || 0;
     const maxZoom = options.maxzoom !== undefined ? options.maxzoom : transform.maxZoom;
     const nominalZ = Math.min(Math.max(0, desiredZ), maxZoom);
@@ -48728,7 +48735,7 @@ function coveringTiles(transform, options) {
         let thisTileDesiredZ = desiredZ;
         if (allowVariableZoom) {
             const tileZoomFunc = options.calculateTileZoom || defaultCalculateTileZoom;
-            thisTileDesiredZ = tileZoomFunc(transform.zoom + performance$1.scaleZoom(transform.tileSize / options.tileSize), distToTile2d, distanceZ, distanceToCenter3d, transform.fov);
+            thisTileDesiredZ = tileZoomFunc(requestedCenterZoom, distToTile2d, distanceZ, distanceToCenter3d, transform.fov);
         }
         thisTileDesiredZ = (options.roundZoom ? Math.round : Math.floor)(thisTileDesiredZ);
         thisTileDesiredZ = Math.max(0, thisTileDesiredZ);
@@ -49066,6 +49073,28 @@ class InViewTiles {
     }
 }
 
+const DEFAULT_STABLE_ZOOM_MAX_LAT = 85;
+const STABLE_ZOOM_MIN_COS = 0.000001;
+const getStableZoom = (transform, maxLat) => {
+    const lat = performance$1.clamp(transform.center.lat, -maxLat, maxLat);
+    const cos = Math.cos(performance$1.degreesToRadians(lat));
+    const safeCos = Math.max(STABLE_ZOOM_MIN_COS, Math.abs(cos));
+    return transform.zoom + Math.log2(1 / safeCos);
+};
+const getStableZoomForSource = (transform, source, defaultMaxLat = DEFAULT_STABLE_ZOOM_MAX_LAT) => {
+    var _a;
+    if (!(source === null || source === void 0 ? void 0 : source.stableZoom))
+        return undefined;
+    const maxLat = (_a = source.stableZoomMaxLat) !== null && _a !== void 0 ? _a : defaultMaxLat;
+    return getStableZoom(transform, maxLat);
+};
+
+const getCenterZoomForSource = (transform, source, map) => {
+    var _a, _b;
+    if (((_b = (_a = map === null || map === void 0 ? void 0 : map.style) === null || _a === void 0 ? void 0 : _a.projection) === null || _b === void 0 ? void 0 : _b.name) !== 'globe')
+        return undefined;
+    return getStableZoomForSource(transform, source, DEFAULT_STABLE_ZOOM_MAX_LAT);
+};
 /**
  * @internal
  * `TileManager` is responsible for
@@ -49454,6 +49483,7 @@ class TileManager extends performance$1.Evented {
         this.terrain = terrain;
         this.updateCacheSize(transform);
         this.handleWrapJump(this.transform.center.lng);
+        const centerZoom = getCenterZoomForSource(transform, this._source, this.map);
         let idealTileIDs;
         if (!this.used && !this.usedForTerrain) {
             idealTileIDs = [];
@@ -49473,6 +49503,7 @@ class TileManager extends performance$1.Evented {
                 reparseOverscaled: this._source.reparseOverscaled,
                 terrain,
                 calculateTileZoom: this._source.calculateTileZoom,
+                centerZoom,
             });
             if (this._source.hasTile) { // tile should be in bounds
                 idealTileIDs = idealTileIDs.filter((coord) => this._source.hasTile(coord));
@@ -49492,7 +49523,13 @@ class TileManager extends performance$1.Evented {
         // Retain is a list of tiles that we shouldn't delete, even if they are not
         // the most ideal tile for the current viewport. This may include tiles like
         // parent or child tiles that are *already* loaded.
-        const zoom = coveringZoomLevel(transform, this._source);
+        const zoom = coveringZoomLevel(transform, {
+            tileSize: this._source.tileSize,
+            minzoom: this._source.minzoom,
+            maxzoom: this._source.maxzoom,
+            roundZoom: this._source.roundZoom,
+            centerZoom
+        });
         const retain = this._updateRetainedTiles(idealTileIDs, zoom);
         // enable fading for raster source except when using terrain which doesn't currently support fading
         const isRaster = isRasterType(this._source.type);
@@ -52238,12 +52275,13 @@ class LayerPlacement {
     }
 }
 class PauseablePlacement {
-    constructor(transform, terrain, order, forceFullPlacement, showCollisionBoxes, fadeDuration, crossSourceCollisions, prevPlacement) {
+    constructor(transform, terrain, order, forceFullPlacement, showCollisionBoxes, fadeDuration, crossSourceCollisions, prevPlacement, getLayerZoom) {
         this.placement = new Placement(transform, terrain, fadeDuration, crossSourceCollisions, prevPlacement);
         this._currentPlacementIndex = order.length - 1;
         this._forceFullPlacement = forceFullPlacement;
         this._showCollisionBoxes = showCollisionBoxes;
         this._done = false;
+        this._getLayerZoom = getLayerZoom;
     }
     isDone() {
         return this._done;
@@ -52256,7 +52294,7 @@ class PauseablePlacement {
         while (this._currentPlacementIndex >= 0) {
             const layerId = order[this._currentPlacementIndex];
             const layer = layers[layerId];
-            const placementZoom = this.placement.collisionIndex.transform.zoom;
+            const placementZoom = this._getLayerZoom ? this._getLayerZoom(layer) : this.placement.collisionIndex.transform.zoom;
             if (layer.type === 'symbol' &&
                 (!layer.minzoom || layer.minzoom <= placementZoom) &&
                 (!layer.maxzoom || layer.maxzoom > placementZoom)) {
@@ -58197,6 +58235,20 @@ class Style extends performance$1.Evented {
             throw new Error('Style is not done loading.');
         }
     }
+    getLayerZoom(layer, fallbackZoom) {
+        var _a, _b, _c, _d, _e;
+        const transform = (_a = this.map) === null || _a === void 0 ? void 0 : _a.transform;
+        const baseZoom = (_c = (_b = fallbackZoom !== null && fallbackZoom !== void 0 ? fallbackZoom : transform === null || transform === void 0 ? void 0 : transform.zoom) !== null && _b !== void 0 ? _b : this.z) !== null && _c !== void 0 ? _c : 0;
+        if (!(layer === null || layer === void 0 ? void 0 : layer.source))
+            return baseZoom;
+        if (((_d = this.projection) === null || _d === void 0 ? void 0 : _d.name) !== 'globe')
+            return baseZoom;
+        if (!transform)
+            return baseZoom;
+        const source = (_e = this.tileManagers[layer.source]) === null || _e === void 0 ? void 0 : _e._source;
+        const stableZoom = getStableZoomForSource(transform, source, DEFAULT_STABLE_ZOOM_MAX_LAT);
+        return stableZoom !== null && stableZoom !== void 0 ? stableZoom : baseZoom;
+    }
     /**
      * @internal
      * Apply queued style updates in a batch and recalculate zoom-dependent paint properties.
@@ -58246,7 +58298,8 @@ class Style extends performance$1.Evented {
         for (const layerId of this._order) {
             const layer = this._layers[layerId];
             layer.recalculate(parameters, this._availableImages);
-            if (!layer.isHidden(parameters.zoom) && layer.source) {
+            const layerZoom = this.getLayerZoom(layer, parameters.zoom);
+            if (!layer.isHidden(layerZoom) && layer.source) {
                 this.tileManagers[layer.source].used = true;
             }
         }
@@ -59149,7 +59202,7 @@ class Style extends performance$1.Evented {
         // tiles will fully display symbols in their first frame
         forceFullPlacement = forceFullPlacement || this._layerOrderChanged || fadeDuration === 0;
         if (forceFullPlacement || !this.pauseablePlacement || (this.pauseablePlacement.isDone() && !this.placement.stillRecent(now(), transform.zoom))) {
-            this.pauseablePlacement = new PauseablePlacement(transform, this.map.terrain, this._order, forceFullPlacement, showCollisionBoxes, fadeDuration, crossSourceCollisions, this.placement);
+            this.pauseablePlacement = new PauseablePlacement(transform, this.map.terrain, this._order, forceFullPlacement, showCollisionBoxes, fadeDuration, crossSourceCollisions, this.placement, (layer) => this.getLayerZoom(layer, transform.zoom));
             this._layerOrderChanged = false;
         }
         if (this.pauseablePlacement.isDone()) {
@@ -62829,7 +62882,8 @@ function selectDebugSource(style, zoom) {
     let selectedSource = null;
     const layers = Object.values(style._layers);
     const sources = layers.flatMap((layer) => {
-        if (layer.source && !layer.isHidden(zoom)) {
+        const layerZoom = style.getLayerZoom(layer, zoom);
+        if (layer.source && !layer.isHidden(layerZoom)) {
             const tileManager = style.tileManagers[layer.source];
             return [tileManager];
         }
@@ -63376,7 +63430,8 @@ class Painter {
         this.renderPass = 'offscreen';
         for (const layerId of layerIds) {
             const layer = this.style._layers[layerId];
-            if (!layer.hasOffscreenPass() || layer.isHidden(this.transform.zoom))
+            const layerZoom = this.style.getLayerZoom(layer, this.transform.zoom);
+            if (!layer.hasOffscreenPass() || layer.isHidden(layerZoom))
                 continue;
             const coords = coordsDescending[layer.source];
             if (layer.type !== 'custom' && !coords.length)
@@ -63477,7 +63532,8 @@ class Painter {
         drawCoords(this, this.style.map.terrain);
     }
     renderLayer(painter, tileManager, layer, coords, renderOptions) {
-        if (layer.isHidden(this.transform.zoom))
+        const layerZoom = this.style.getLayerZoom(layer, this.transform.zoom);
+        if (layer.isHidden(layerZoom))
             return;
         if (layer.type !== 'background' && layer.type !== 'custom' && !(coords || []).length)
             return;
@@ -68847,7 +68903,10 @@ class RenderToTexture {
         this._prevType = null;
         this._rttTiles = [];
         this._renderableTiles = this.terrain.tileManager.getRenderableTiles();
-        this._renderableLayerIds = style._order.filter(id => !style._layers[id].isHidden(zoom));
+        this._renderableLayerIds = style._order.filter((id) => {
+            const layer = style._layers[id];
+            return !layer.isHidden(style.getLayerZoom(layer, zoom));
+        });
         this._coordsAscending = {};
         for (const id in style.tileManagers) {
             this._coordsAscending[id] = {};
@@ -68898,7 +68957,8 @@ class RenderToTexture {
      * @returns if true layer is rendered to texture, otherwise false
      */
     renderLayer(layer, renderOptions) {
-        if (layer.isHidden(this.painter.transform.zoom))
+        const layerZoom = this.painter.style.getLayerZoom(layer, this.painter.transform.zoom);
+        if (layer.isHidden(layerZoom))
             return false;
         const options = Object.assign(Object.assign({}, renderOptions), { isRenderingToTexture: true });
         const type = layer.type;

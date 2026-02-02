@@ -2772,6 +2772,10 @@ export type CoveringTilesOptions = {
 	 * Tile size, expressed in screen pixels.
 	 */
 	tileSize: number;
+	/**
+	 * Optional center zoom override used for tile selection.
+	 */
+	centerZoom?: number;
 };
 type CoveringTilesOptionsInternal = CoveringTilesOptions & {
 	/**
@@ -2904,6 +2908,14 @@ export interface Source {
 	 * Optional function to redefine how tiles are loaded at high pitch angles.
 	 */
 	calculateTileZoom?: CalculateTileZoomFunction;
+	/**
+	 * When true, tile selection uses a latitude-stable zoom for globe projection.
+	 */
+	stableZoom?: boolean;
+	/**
+	 * Optional maximum latitude used for stable zoom calculation.
+	 */
+	stableZoomMaxLat?: number;
 	/**
 	 * Optional function to determine whether a tile should be reloaded, given a
 	 * set of options associated with a `MapSourceDataChangedEvent`.
@@ -6557,7 +6569,8 @@ declare class PauseablePlacement {
 	_forceFullPlacement: boolean;
 	_showCollisionBoxes: boolean;
 	_inProgressLayer: LayerPlacement;
-	constructor(transform: ITransform, terrain: Terrain, order: Array<string>, forceFullPlacement: boolean, showCollisionBoxes: boolean, fadeDuration: number, crossSourceCollisions: boolean, prevPlacement?: Placement);
+	_getLayerZoom: (layer: StyleLayer) => number;
+	constructor(transform: ITransform, terrain: Terrain, order: Array<string>, forceFullPlacement: boolean, showCollisionBoxes: boolean, fadeDuration: number, crossSourceCollisions: boolean, prevPlacement?: Placement, getLayerZoom?: (layer: StyleLayer) => number);
 	isDone(): boolean;
 	continuePlacement(order: Array<string>, layers: {
 		[_: string]: StyleLayer;
@@ -7114,6 +7127,7 @@ export declare class Style extends Evented {
 	private _serializedAllLayers;
 	hasTransitions(): boolean;
 	_checkLoaded(): void;
+	getLayerZoom(layer: StyleLayer, fallbackZoom?: number): number;
 	/**
 	 * @internal
 	 * Apply queued style updates in a batch and recalculate zoom-dependent paint properties.
@@ -14484,6 +14498,8 @@ export declare class RasterDEMTileSource extends RasterTileSource implements Sou
 type VectorTileSourceOptions = VectorSourceSpecification & {
 	collectResourceTiming?: boolean;
 	tileSize?: number;
+	stableZoom?: boolean;
+	stableZoomMaxLat?: number;
 };
 /**
  * A source containing vector tiles in [Maplibre Vector Tile format](https://maplibre.org/maplibre-tile-spec/) or [Mapbox Vector Tile format](https://docs.mapbox.com/vector-tiles/reference/).
@@ -14530,6 +14546,8 @@ export declare class VectorTileSource extends Evented implements Source {
 	encoding: string;
 	tileSize: number;
 	promoteId: PromoteIdSpecification;
+	stableZoom?: boolean;
+	stableZoomMaxLat?: number;
 	_options: VectorSourceSpecification;
 	_collectResourceTiming: boolean;
 	dispatcher: Dispatcher;
