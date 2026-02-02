@@ -127,7 +127,8 @@ export function selectDebugSource(style: Style, zoom: number): TileManager | nul
     let selectedSource: TileManager = null;
     const layers = Object.values(style._layers);
     const sources = layers.flatMap((layer) => {
-        if (layer.source && !layer.isHidden(zoom)) {
+        const layerZoom = style.getLayerZoom(layer, zoom);
+        if (layer.source && !layer.isHidden(layerZoom)) {
             const tileManager = style.tileManagers[layer.source];
             return [tileManager];
         } else {

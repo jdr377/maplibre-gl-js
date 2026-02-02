@@ -122,6 +122,14 @@ export interface Source {
      */
     calculateTileZoom?: CalculateTileZoomFunction;
     /**
+     * When true, tile selection uses a latitude-stable zoom for globe projection.
+     */
+    stableZoom?: boolean;
+    /**
+     * Optional maximum latitude used for stable zoom calculation.
+     */
+    stableZoomMaxLat?: number;
+    /**
      * Optional function to determine whether a tile should be reloaded, given a
      * set of options associated with a `MapSourceDataChangedEvent`.
      * @internal

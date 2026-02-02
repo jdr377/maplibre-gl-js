@@ -83,7 +83,10 @@ export class RenderToTexture {
         this._prevType = null;
         this._rttTiles = [];
         this._renderableTiles = this.terrain.tileManager.getRenderableTiles();
-        this._renderableLayerIds = style._order.filter(id => !style._layers[id].isHidden(zoom));
+        this._renderableLayerIds = style._order.filter((id) => {
+            const layer = style._layers[id];
+            return !layer.isHidden(style.getLayerZoom(layer, zoom));
+        });
 
         this._coordsAscending = {};
         for (const id in style.tileManagers) {
@@ -138,7 +141,8 @@ export class RenderToTexture {
      * @returns if true layer is rendered to texture, otherwise false
      */
     renderLayer(layer: StyleLayer, renderOptions: RenderOptions): boolean {
-        if (layer.isHidden(this.painter.transform.zoom)) return false;
+        const layerZoom = this.painter.style.getLayerZoom(layer, this.painter.transform.zoom);
+        if (layer.isHidden(layerZoom)) return false;
 
         const options: RenderOptions = {...renderOptions, isRenderingToTexture: true};
         const type = layer.type;

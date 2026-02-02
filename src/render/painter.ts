@@ -532,7 +532,8 @@ export class Painter {
 
         for (const layerId of layerIds) {
             const layer = this.style._layers[layerId];
-            if (!layer.hasOffscreenPass() || layer.isHidden(this.transform.zoom)) continue;
+            const layerZoom = this.style.getLayerZoom(layer, this.transform.zoom);
+            if (!layer.hasOffscreenPass() || layer.isHidden(layerZoom)) continue;
 
             const coords = coordsDescending[layer.source];
             if (layer.type !== 'custom' && !coords.length) continue;
@@ -655,7 +656,8 @@ export class Painter {
     }
 
     renderLayer(painter: Painter, tileManager: TileManager, layer: StyleLayer, coords: Array<OverscaledTileID>, renderOptions: RenderOptions) {
-        if (layer.isHidden(this.transform.zoom)) return;
+        const layerZoom = this.style.getLayerZoom(layer, this.transform.zoom);
+        if (layer.isHidden(layerZoom)) return;
         if (layer.type !== 'background' && layer.type !== 'custom' && !(coords || []).length) return;
         this.id = layer.id;
 

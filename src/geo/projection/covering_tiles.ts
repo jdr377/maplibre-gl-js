@@ -40,6 +40,10 @@ export type CoveringTilesOptions = {
      * Tile size, expressed in screen pixels.
      */
     tileSize: number;
+    /**
+     * Optional center zoom override used for tile selection.
+     */
+    centerZoom?: number;
 };
 
 export type CoveringTilesOptionsInternal = CoveringTilesOptions & {
@@ -161,8 +165,9 @@ const defaultCalculateTileZoom = createCalculateTileZoomFunction(defaultMaxZoomL
  * @returns An integer zoom level at which all tiles will be visible.
  */
 export function coveringZoomLevel(transform: IReadonlyTransform, options: CoveringTilesOptions): number {
+    const centerZoom = options.centerZoom ?? transform.zoom;
     const z = (options.roundZoom ? Math.round : Math.floor)(
-        transform.zoom + scaleZoom(transform.tileSize / options.tileSize)
+        centerZoom + scaleZoom(transform.tileSize / options.tileSize)
     );
     // At negative zoom levels load tiles from z0 because negative tile zoom levels don't exist.
     return Math.max(0, z);
@@ -189,7 +194,9 @@ export function coveringTiles(transform: IReadonlyTransform, options: CoveringTi
     const detailsProvider = transform.getCoveringTilesDetailsProvider();
     const allowVariableZoom = detailsProvider.allowVariableZoom(transform, options);
     
-    const desiredZ = coveringZoomLevel(transform, options);
+    const centerZoom = options.centerZoom ?? transform.zoom;
+    const requestedCenterZoom = centerZoom + scaleZoom(transform.tileSize / options.tileSize);
+    const desiredZ = (options.roundZoom ? Math.round : Math.floor)(requestedCenterZoom);
     const minZoom = options.minzoom || 0;
     const maxZoom = options.maxzoom !== undefined ? options.maxzoom : transform.maxZoom;
     const nominalZ = Math.min(Math.max(0, desiredZ), maxZoom);
@@ -248,7 +255,7 @@ export function coveringTiles(transform: IReadonlyTransform, options: CoveringTi
         let thisTileDesiredZ = desiredZ;
         if (allowVariableZoom) {
             const tileZoomFunc = options.calculateTileZoom || defaultCalculateTileZoom;
-            thisTileDesiredZ = tileZoomFunc(transform.zoom + scaleZoom(transform.tileSize / options.tileSize),
+            thisTileDesiredZ = tileZoomFunc(requestedCenterZoom,
                 distToTile2d,
                 distanceZ,
                 distanceToCenter3d,

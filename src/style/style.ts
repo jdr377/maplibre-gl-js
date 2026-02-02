@@ -28,6 +28,7 @@ import {PauseablePlacement} from './pauseable_placement';
 import {ZoomHistory} from './zoom_history';
 import {CrossTileSymbolIndex} from '../symbol/cross_tile_symbol_index';
 import {validateCustomStyleLayer} from './style_layer/custom_style_layer';
+import {DEFAULT_STABLE_ZOOM_MAX_LAT, getStableZoomForSource} from '../util/stable_zoom';
 import type {MapGeoJSONFeature} from '../util/vectortile_to_geojson';
 import type Point from '@mapbox/point-geometry';
 
@@ -710,6 +711,17 @@ export class Style extends Evented {
         }
     }
 
+    getLayerZoom(layer: StyleLayer, fallbackZoom?: number): number {
+        const transform = this.map?.transform;
+        const baseZoom = fallbackZoom ?? transform?.zoom ?? this.z ?? 0;
+        if (!layer?.source) return baseZoom;
+        if (this.projection?.name !== 'globe') return baseZoom;
+        if (!transform) return baseZoom;
+        const source = this.tileManagers[layer.source]?._source;
+        const stableZoom = getStableZoomForSource(transform, source, DEFAULT_STABLE_ZOOM_MAX_LAT);
+        return stableZoom ?? baseZoom;
+    }
+
     /**
      * @internal
      * Apply queued style updates in a batch and recalculate zoom-dependent paint properties.
@@ -769,7 +781,8 @@ export class Style extends Evented {
             const layer = this._layers[layerId];
 
             layer.recalculate(parameters, this._availableImages);
-            if (!layer.isHidden(parameters.zoom) && layer.source) {
+            const layerZoom = this.getLayerZoom(layer, parameters.zoom);
+            if (!layer.isHidden(layerZoom) && layer.source) {
                 this.tileManagers[layer.source].used = true;
             }
         }
@@ -1837,7 +1850,17 @@ export class Style extends Evented {
         forceFullPlacement = forceFullPlacement || this._layerOrderChanged || fadeDuration === 0;
 
         if (forceFullPlacement || !this.pauseablePlacement || (this.pauseablePlacement.isDone() && !this.placement.stillRecent(now(), transform.zoom))) {
-            this.pauseablePlacement = new PauseablePlacement(transform, this.map.terrain, this._order, forceFullPlacement, showCollisionBoxes, fadeDuration, crossSourceCollisions, this.placement);
+            this.pauseablePlacement = new PauseablePlacement(
+                transform,
+                this.map.terrain,
+                this._order,
+                forceFullPlacement,
+                showCollisionBoxes,
+                fadeDuration,
+                crossSourceCollisions,
+                this.placement,
+                (layer) => this.getLayerZoom(layer, transform.zoom)
+            );
             this._layerOrderChanged = false;
         }
 

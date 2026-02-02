@@ -17,6 +17,7 @@ import {GEOJSON_TILE_LAYER_NAME} from '../data/feature_index';
 import {hasRasterTransition, isRasterType, updateFadingTiles} from './tile_manager_raster';
 import {backfillDEM} from './tile_manager_raster_dem';
 import {InViewTiles} from './tile_manager_in_view_tiles';
+import {DEFAULT_STABLE_ZOOM_MAX_LAT, getStableZoomForSource} from '../util/stable_zoom';
 
 import type {Context} from '../gl/context';
 import type {Source} from '../source/source';
@@ -36,6 +37,11 @@ type TileResult = {
     queryGeometry: Array<Point>;
     cameraQueryGeometry: Array<Point>;
     scale: number;
+};
+
+const getCenterZoomForSource = (transform: IReadonlyTransform, source: Source, map: Map): number | undefined => {
+    if (map?.style?.projection?.name !== 'globe') return undefined;
+    return getStableZoomForSource(transform, source, DEFAULT_STABLE_ZOOM_MAX_LAT);
 };
 
 /**
@@ -492,6 +498,7 @@ export class TileManager extends Evented {
 
         this.updateCacheSize(transform);
         this.handleWrapJump(this.transform.center.lng);
+        const centerZoom = getCenterZoomForSource(transform, this._source, this.map);
 
         let idealTileIDs: OverscaledTileID[];
 
@@ -511,6 +518,7 @@ export class TileManager extends Evented {
                 reparseOverscaled: this._source.reparseOverscaled,
                 terrain,
                 calculateTileZoom: this._source.calculateTileZoom,
+                centerZoom,
             });
 
             if (this._source.hasTile) { // tile should be in bounds
@@ -534,7 +542,13 @@ export class TileManager extends Evented {
         // Retain is a list of tiles that we shouldn't delete, even if they are not
         // the most ideal tile for the current viewport. This may include tiles like
         // parent or child tiles that are *already* loaded.
-        const zoom: number = coveringZoomLevel(transform, this._source);
+        const zoom: number = coveringZoomLevel(transform, {
+            tileSize: this._source.tileSize,
+            minzoom: this._source.minzoom,
+            maxzoom: this._source.maxzoom,
+            roundZoom: this._source.roundZoom,
+            centerZoom
+        });
         const retain: Record<string, OverscaledTileID> = this._updateRetainedTiles(idealTileIDs, zoom);
 
         // enable fading for raster source except when using terrain which doesn't currently support fading

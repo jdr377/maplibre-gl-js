@@ -18,6 +18,8 @@ import type {WorkerTileParameters, OverzoomParameters, WorkerTileResult} from '.
 export type VectorTileSourceOptions = VectorSourceSpecification & {
     collectResourceTiming?: boolean;
     tileSize?: number;
+    stableZoom?: boolean;
+    stableZoomMaxLat?: number;
 };
 
 /**
@@ -65,6 +67,8 @@ export class VectorTileSource extends Evented implements Source {
     encoding: string;
     tileSize: number;
     promoteId: PromoteIdSpecification;
+    stableZoom?: boolean;
+    stableZoomMaxLat?: number;
 
     _options: VectorSourceSpecification;
     _collectResourceTiming: boolean;
@@ -93,6 +97,8 @@ export class VectorTileSource extends Evented implements Source {
         this._loaded = false;
 
         extend(this, pick(options, ['url', 'scheme', 'tileSize', 'promoteId', 'encoding']));
+        this.stableZoom = options.stableZoom === true;
+        this.stableZoomMaxLat = options.stableZoomMaxLat;
         this._options = extend({type: 'vector'}, options);
 
         this._collectResourceTiming = options.collectResourceTiming;

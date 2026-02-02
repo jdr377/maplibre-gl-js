@@ -65,6 +65,7 @@ export class PauseablePlacement {
     _forceFullPlacement: boolean;
     _showCollisionBoxes: boolean;
     _inProgressLayer: LayerPlacement;
+    _getLayerZoom: (layer: StyleLayer) => number;
 
     constructor(
         transform: ITransform,
@@ -74,13 +75,15 @@ export class PauseablePlacement {
         showCollisionBoxes: boolean,
         fadeDuration: number,
         crossSourceCollisions: boolean,
-        prevPlacement?: Placement
+        prevPlacement?: Placement,
+        getLayerZoom?: (layer: StyleLayer) => number
     ) {
         this.placement = new Placement(transform, terrain, fadeDuration, crossSourceCollisions, prevPlacement);
         this._currentPlacementIndex = order.length - 1;
         this._forceFullPlacement = forceFullPlacement;
         this._showCollisionBoxes = showCollisionBoxes;
         this._done = false;
+        this._getLayerZoom = getLayerZoom;
     }
 
     isDone() {
@@ -101,7 +104,7 @@ export class PauseablePlacement {
         while (this._currentPlacementIndex >= 0) {
             const layerId = order[this._currentPlacementIndex];
             const layer = layers[layerId];
-            const placementZoom = this.placement.collisionIndex.transform.zoom;
+            const placementZoom = this._getLayerZoom ? this._getLayerZoom(layer) : this.placement.collisionIndex.transform.zoom;
             if (layer.type === 'symbol' &&
                 (!layer.minzoom || layer.minzoom <= placementZoom) &&
                 (!layer.maxzoom || layer.maxzoom > placementZoom)) {
